@@ -11,8 +11,8 @@
 #include <vector>
 #include <cstdint>
 
-std::vector<uint64_t> lcg(uint64_t m, uint64_t a, uint64_t b, uint64_t ro, size_t size);
-std::vector<uint64_t> random(uint64_t x, uint64_t y, uint64_t ro, size_t size = 1000);
+std::vector<int> lcg(int m, int a, int b, int ro, size_t size);
+std::vector<int> random(int x, int y, int ro, int size = 1000);
 
 #endif // LCG_H
 

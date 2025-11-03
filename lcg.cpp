@@ -3,9 +3,10 @@
 //
 
 #include "lcg.h"
+#include <cmath>
 
-std::vector<uint64_t> lcg(uint64_t m, uint64_t a, uint64_t b, uint64_t ro, size_t size) {
-    std::vector<uint64_t> r(size);
+std::vector<int> lcg(int m, int a, int b, int ro, int size) {
+    std::vector<int> r(size);
     r[0] = ro;
 
     for (size_t i = 1; i < size; i++) {
@@ -15,12 +16,12 @@ std::vector<uint64_t> lcg(uint64_t m, uint64_t a, uint64_t b, uint64_t ro, size_
     return r;
 }
 
-std::vector<uint64_t> random(uint64_t x, uint64_t y, uint64_t ro, size_t size) {
-    uint64_t m = (1ULL << 32);
-    uint64_t a = 69069;
-    uint64_t b = 0;
+std::vector<int> random(int x, int y, int ro, int size) {
+    int m = pow(2, 32);
+    int a = 69069;
+    int b = 0;
 
-    std::vector<uint64_t> numbers = lcg(m, a, b, ro, size);
+    std::vector<int> numbers = lcg(m, a, b, ro, size);
 
     for (size_t i = 0; i < numbers.size(); i++) {
         numbers[i] = x + (numbers[i] % (y - x + 1));
