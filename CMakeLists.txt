@@ -11,6 +11,7 @@ find_package(FLTK REQUIRED)
 
 # Include FLTK directories
 include_directories(${FLTK_INCLUDE_DIR})
+include_directories("C:/Libraries/boost_1_89_0/boost_1_89_0")
 
 # Add executable
 add_executable(Naloga_2_deljenje_skrivnosti main.cpp

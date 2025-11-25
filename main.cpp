@@ -1,4 +1,4 @@
-#include <iostream>
+#include <cmath>
 #include <vector>
 #include <string>
 #include <FL/Fl.H>
@@ -8,8 +8,12 @@
 #include <FL/Fl_Box.H>
 #include <FL/Fl_Text_Display.H>
 #include <FL/Fl_Text_Buffer.H>
-#include "lcg.h"
+#include <boost/multiprecision/cpp_int.hpp>
+#include <stdexcept>
 
+
+using boost::multiprecision::cpp_int;
+using boost::multiprecision::cpp_rational;
 using namespace std;
 
 // Global GUI components
@@ -24,46 +28,98 @@ Fl_Input *count_input;
 Fl_Text_Buffer *output_buffer;
 Fl_Text_Display *output_display;
 
-int evaluatePolynomial(const std::vector<int>& coeffs, int x) {
-    int result = 0.0;
-    int power = 1.0;
 
-    for (int coef : coeffs) {
-        result += coef * power;
-        power *= x;
+cpp_int polynomial(const vector<cpp_int> &a, const cpp_int& k, const cpp_int &x) {
+    cpp_int result = 0;
+
+    for (int i = 0; i < k; i++) {
+        result += a[i] * pow(x, i);
     }
 
     return result;
 }
 
-void divide_secret(Fl_Widget* widget, void* data) {
+void divide_secret_button(Fl_Widget *widget, void *data) {
     try {
-        const uint64_t secret = stoull(secret_input->value());
-        const uint64_t k = stoull(k_input->value());
-        const uint64_t n = stoull(n_input->value());
+        const cpp_int secret = stoull(secret_input->value());
+        const cpp_int k = stoull(k_input->value());
+        const cpp_int n = stoull(n_input->value());
 
-        vector<int> a;
-        vector<int> D;
+        vector<cpp_int> a;
+        vector<pair<cpp_int, cpp_int> > D;
 
         // a0 = secret message.
         a.emplace_back(secret);
-
-        // Generate coeficients.
-        /*for (int i = 0; i < k - 1; i++) {
-            vector<int> numbers = random(1, pow(2, 32) - 1, i, 10);
-            a.emplace_back(numbers[numbers.size() - 1]);
-        }*/
 
         // For testing.
         a.emplace_back(166);
         a.emplace_back(94);
 
-        for (int i = 1; i <= n; i++) {
-            D.emplace_back(evaluatePolynomial(a, i));
-        }
-        cout << "";
+        string entryOutput;
 
-    } catch (const exception& e) {
+        for (int i = 1; i <= n; i++) {
+            auto entry = pair(i, polynomial(a, k, i));
+            D.emplace_back(entry);
+            entryOutput += "D<" + boost::lexical_cast<string>(entry.first)
+                     + "," + boost::lexical_cast<string>(entry.second) + ">";
+        }
+        output_buffer->text(entryOutput.c_str());
+    } catch (const exception &e) {
+        output_buffer->text("Error: Invalid input values");
+    }
+}
+
+cpp_rational reconstruct_secret(const vector<pair<cpp_int, cpp_int>> &D, const cpp_int& k) {
+    cpp_rational secret;
+
+    if (k > D.size()) throw invalid_argument("K is larger than the size of provided D.");
+
+    for (int j = 0; j < k; j++) {
+        cpp_rational product = 1;
+        for (int i = 0; i < k; i++) {
+            if (i == j) continue;
+
+            product *= cpp_rational(D[i].first, (D[i].first - D[j].first)); // Division
+        }
+        secret += D[j].second * product;
+    }
+
+    return secret;
+}
+
+cpp_rational reconstruct_secret_robust(const vector<pair<cpp_int, cpp_int>> &D, const cpp_int& k) {
+    cpp_rational secret;
+
+    if (k > D.size()) throw invalid_argument("K is larger than the size of provided D.");
+
+    for (int j = 0; j < k; j++) {
+        cpp_rational product = 1;
+        for (int i = 0; i < k; i++) {
+            if (i == j) continue;
+
+            product *= cpp_rational(D[i].first, (D[i].first - D[j].first)); // Division
+        }
+        secret += D[j].second * product;
+    }
+
+    return secret;
+}
+
+void reconstruct_secret_button(Fl_Widget *widget, void *data) {
+    try {
+        const cpp_int k = stoull(k_input->value());
+        const vector<pair<cpp_int, cpp_int>> D = {
+            {1, 1494},
+            {2, 1942},
+            {3, 2578},
+            {4, 3402},
+            {5, 4414},
+            {6, 5614}
+        };
+
+        const cpp_rational secret = reconstruct_secret_robust(D, k);
+        output_buffer->text(boost::lexical_cast<string>(secret).c_str());
+    } catch (const exception &e) {
         output_buffer->text("Error: Invalid input values");
     }
 }
@@ -113,7 +169,7 @@ int main() {
     auto *window = new Fl_Window(600, 550, "Secret Sharing");
 
     // Title
-    auto *title = new Fl_Box(20, 10, 560, 30, "LCG Random Number Generator");
+    auto *title = new Fl_Box(20, 10, 560, 30, "Manage Secrets");
     title->labelsize(16);
     title->labelfont(FL_BOLD);
 
@@ -134,9 +190,12 @@ int main() {
     k_input->value("3");
 
     // Generate button
-    auto *generate_btn = new Fl_Button(225, 170, 150, 40, "Generate Numbers");
-    generate_btn->callback(divide_secret);
+    auto *divide_btn = new Fl_Button(125, 170, 150, 40, "Divide Secret");
+    divide_btn->callback(divide_secret_button);
 
+    // Generate button
+    auto *reconstruct_btn = new Fl_Button(325, 170, 150, 40, "Reconstruct Secret");
+    reconstruct_btn->callback(reconstruct_secret_button);
 
     /*// Input fields
     auto *seed_label = new Fl_Box(20, 50, 100, 30, "Seed:");
