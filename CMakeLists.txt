@@ -16,7 +16,10 @@ include_directories("C:/Libraries/boost_1_89_0/boost_1_89_0")
 # Add executable
 add_executable(Naloga_2_deljenje_skrivnosti main.cpp
         lcg.h
-        lcg.cpp)
+        lcg.cpp
+        file_utils.cpp
+        file_utils.h
+)
 
 # Link FLTK libraries
 target_link_libraries(Naloga_2_deljenje_skrivnosti ${FLTK_LIBRARIES})

@@ -10,9 +10,12 @@
 
 #include <vector>
 #include <cstdint>
+#include <boost/multiprecision/cpp_int.hpp>
 
-std::vector<int> lcg(int m, int a, int b, int ro, size_t size);
-std::vector<int> random(int x, int y, int ro, int size = 1000);
+using boost::multiprecision::cpp_int;
+
+std::vector<int> lcg(cpp_int m, cpp_int a, cpp_int b, cpp_int ro, size_t size);
+std::vector<int> random(cpp_int x, cpp_int y, cpp_int ro, int size = 1000);
 
 #endif // LCG_H
 
