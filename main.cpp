@@ -1,4 +1,6 @@
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <vector>
 #include <string>
 #include <FL/Fl.H>
@@ -8,9 +10,12 @@
 #include <FL/Fl_Box.H>
 #include <FL/Fl_Text_Display.H>
 #include <FL/Fl_Text_Buffer.H>
+#include <FL/Fl_Check_Button.H>
 #include <boost/multiprecision/cpp_int.hpp>
 #include <stdexcept>
+#include <FL/Fl_File_Chooser.H>
 
+#include "file_utils.h"
 
 using boost::multiprecision::cpp_int;
 using boost::multiprecision::cpp_rational;
@@ -20,20 +25,18 @@ using namespace std;
 Fl_Input *secret_input;
 Fl_Input *k_input;
 Fl_Input *n_input;
-/*Fl_Input *seed_input;
-Fl_Input *min_input;
-Fl_Input *max_input;
-Fl_Input *count_input;
-*/
+Fl_Input *file_parts_prefix_input;
+Fl_Check_Button *basic_reconstruct_button;
+Fl_Check_Button *robust_reconstruct_button;
 Fl_Text_Buffer *output_buffer;
 Fl_Text_Display *output_display;
+Fl_File_Chooser *input_file_chooser;
 
-
-cpp_int polynomial(const vector<cpp_int> &a, const cpp_int& k, const cpp_int &x) {
+cpp_int polynomial(const vector<cpp_int> &a, const cpp_int &k, const cpp_int &x) {
     cpp_int result = 0;
 
     for (int i = 0; i < k; i++) {
-        result += a[i] * pow(x, i);
+        result += a[i] * boost::multiprecision::pow(x, i);
     }
 
     return result;
@@ -41,12 +44,22 @@ cpp_int polynomial(const vector<cpp_int> &a, const cpp_int& k, const cpp_int &x)
 
 void divide_secret_button(Fl_Widget *widget, void *data) {
     try {
-        const cpp_int secret = stoull(secret_input->value());
+        const cpp_int input_secret = stoull(secret_input->value());
         const cpp_int k = stoull(k_input->value());
         const cpp_int n = stoull(n_input->value());
+        cpp_int secret;
+
+        if (input_file_chooser->value()) {
+            secret = read_file_as_int(input_file_chooser->value());
+        } else {
+            secret = input_secret;
+        }
+        cpp_int val = secret;
+        val <<= 256;
+        cout << "Provided int: " << val.str() << endl;
 
         vector<cpp_int> a;
-        vector<pair<cpp_int, cpp_int> > D;
+        vector<pair<cpp_int, cpp_int>> D;
 
         // a0 = secret message.
         a.emplace_back(secret);
@@ -61,15 +74,24 @@ void divide_secret_button(Fl_Widget *widget, void *data) {
             auto entry = pair(i, polynomial(a, k, i));
             D.emplace_back(entry);
             entryOutput += "D<" + boost::lexical_cast<string>(entry.first)
-                     + "," + boost::lexical_cast<string>(entry.second) + ">";
+                    + "," + boost::lexical_cast<string>(entry.second) + ">";
+
+            // Write D[i] to file
+            filesystem::create_directories("divided_files");
+            ofstream outfile(
+                "divided_files/" + boost::lexical_cast<string>(file_parts_prefix_input->value()) + "_" + boost::lexical_cast<
+                    string>(i) + ".txt");
+            outfile << boost::lexical_cast<string>(entry.first) + ";" + boost::lexical_cast<string>(entry.second);
         }
+
+        if (input_file_chooser->value()) entryOutput = "File divided";
         output_buffer->text(entryOutput.c_str());
     } catch (const exception &e) {
         output_buffer->text("Error: Invalid input values");
     }
 }
 
-cpp_rational reconstruct_secret(const vector<pair<cpp_int, cpp_int>> &D, const cpp_int& k) {
+cpp_rational reconstruct_secret_basic(const vector<pair<cpp_int, cpp_int> > &D, const cpp_int &k) {
     cpp_rational secret;
 
     if (k > D.size()) throw invalid_argument("K is larger than the size of provided D.");
@@ -87,20 +109,40 @@ cpp_rational reconstruct_secret(const vector<pair<cpp_int, cpp_int>> &D, const c
     return secret;
 }
 
-cpp_rational reconstruct_secret_robust(const vector<pair<cpp_int, cpp_int>> &D, const cpp_int& k) {
-    cpp_rational secret;
-
+cpp_rational reconstruct_secret_robust(const vector<pair<cpp_int, cpp_int> > &D, const cpp_int &k) {
     if (k > D.size()) throw invalid_argument("K is larger than the size of provided D.");
 
+    cpp_int down_global = 1;
+
     for (int j = 0; j < k; j++) {
-        cpp_rational product = 1;
+        cpp_int product = 1;
         for (int i = 0; i < k; i++) {
             if (i == j) continue;
-
-            product *= cpp_rational(D[i].first, (D[i].first - D[j].first)); // Division
+            product *= D[i].first - D[j].first;
         }
-        secret += D[j].second * product;
+
+        down_global *= product;
     }
+
+    cpp_int secret = 0;
+
+    for (int j = 0; j < k; j++) {
+        cpp_int up = 1;
+        cpp_int down_local = 1;
+
+        for (int i = 0; i < k; i++) {
+            if (i == j) continue;
+            up *= D[i].first;
+        }
+
+        for (int i = 0; i < k; i++) {
+            if (i == j) continue;
+            down_local *= D[i].first - D[j].first;
+        }
+
+        secret += D[j].second * up * (down_global / down_local);
+    }
+    secret /= down_global;
 
     return secret;
 }
@@ -108,70 +150,52 @@ cpp_rational reconstruct_secret_robust(const vector<pair<cpp_int, cpp_int>> &D, 
 void reconstruct_secret_button(Fl_Widget *widget, void *data) {
     try {
         const cpp_int k = stoull(k_input->value());
-        const vector<pair<cpp_int, cpp_int>> D = {
+        const vector<pair<cpp_int, cpp_int>> D = read_parts_to_vector();
+        /*{
             {1, 1494},
             {2, 1942},
             {3, 2578},
             {4, 3402},
             {5, 4414},
             {6, 5614}
-        };
+        };*/
 
-        const cpp_rational secret = reconstruct_secret_robust(D, k);
-        output_buffer->text(boost::lexical_cast<string>(secret).c_str());
+        cpp_rational secret;
+
+        if (basic_reconstruct_button->value() && robust_reconstruct_button->value()) {
+            output_buffer->text("You can only choose one reconstruction mode.");
+            return;
+        }
+
+        if (basic_reconstruct_button->value()) {
+            secret = reconstruct_secret_basic(D, k);
+        } else if (robust_reconstruct_button->value()) {
+            secret = reconstruct_secret_robust(D, k);
+        } else {
+            output_buffer->text("Please choose one reconstruction mode.");
+            return;
+        }
+
+        cpp_int val = cpp_int(secret);
+        val <<= 256;
+        cout << "Reconstructed int: " << val.str() << endl;
+        write_int_as_file(cpp_int(secret));
+        output_buffer->text("File reconstructed.");
     } catch (const exception &e) {
         output_buffer->text("Error: Invalid input values");
     }
 }
 
-// Callback function for Generate button
-/*void generate_callback(Fl_Widget* widget, void* data) {
-    try {
-        const uint64_t seed = stoull(seed_input->value());
-        const uint64_t min_val = stoull(min_input->value());
-        const uint64_t max_val = stoull(max_input->value());
-        const int count = stoi(count_input->value());
-
-        if (min_val >= max_val) {
-            output_buffer->text("Error: Min must be less than Max");
-            return;
-        }
-
-        if (count <= 0 || count > 10000) {
-            output_buffer->text("Error: Count must be between 1 and 10000");
-            return;
-        }
-
-        vector<uint64_t> numbers = random(min_val, max_val, seed, count);
-
-        string result = "Generated " + to_string(count) + " random numbers:\n\n";
-
-        // Show first 50 numbers
-        int display_count = min(count, 50);
-        for (int i = 0; i < display_count; i++) {
-            result += "Number " + to_string(i + 1) + ": " + to_string(numbers[i]) + "\n";
-        }
-
-        if (count > 50) {
-            result += "\n... (showing first 50 of " + to_string(count) + " numbers)\n";
-        }
-
-        result += "\nLast number: " + to_string(numbers[count - 1]);
-
-        output_buffer->text(result.c_str());
-
-    } catch (const exception& e) {
-        output_buffer->text("Error: Invalid input values");
-    }
-}*/
-
 int main() {
-    auto *window = new Fl_Window(600, 550, "Secret Sharing");
+    auto *window = new Fl_Window(600, 600, "Secret Sharing");
 
     // Title
     auto *title = new Fl_Box(20, 10, 560, 30, "Manage Secrets");
     title->labelsize(16);
     title->labelfont(FL_BOLD);
+
+    // File Choosers
+    input_file_chooser = new Fl_File_Chooser(".", "*", Fl_File_Chooser::SINGLE, "Choose Secret File");
 
     // Input fields
     auto *secret_label = new Fl_Box(20, 50, 100, 30, "Secret:");
@@ -189,46 +213,28 @@ int main() {
     k_input = new Fl_Input(130, 130, 450, 30);
     k_input->value("3");
 
-    // Generate button
-    auto *divide_btn = new Fl_Button(125, 170, 150, 40, "Divide Secret");
+    auto *file_parts_prefix_label = new Fl_Box(20, 130, 100, 30, "K:");
+    file_parts_prefix_label->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+    file_parts_prefix_input = new Fl_Input(130, 170, 450, 30);
+    file_parts_prefix_input->value("file_part");
+
+    // Buttons
+    auto *choose_file_button = new Fl_Button(25, 210, 150, 40, "Choose Secret File");
+    choose_file_button->callback([](Fl_Widget *, void *) { open_file_dialog(*input_file_chooser); });
+
+    auto *divide_btn = new Fl_Button(225, 210, 150, 40, "Divide Secret");
     divide_btn->callback(divide_secret_button);
 
-    // Generate button
-    auto *reconstruct_btn = new Fl_Button(325, 170, 150, 40, "Reconstruct Secret");
+    auto *reconstruct_btn = new Fl_Button(425, 210, 150, 40, "Reconstruct Secret");
     reconstruct_btn->callback(reconstruct_secret_button);
 
-    /*// Input fields
-    auto *seed_label = new Fl_Box(20, 50, 100, 30, "Seed:");
-    seed_label->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-    seed_input = new Fl_Input(130, 50, 450, 30);
-    seed_input->value("1");
+    // Choose reconstruction option
+    basic_reconstruct_button = new Fl_Check_Button(125, 270, 100, 25, "Basic");
+    robust_reconstruct_button = new Fl_Check_Button(325, 270, 100, 25, "Robust");
 
-    auto *min_label = new Fl_Box(20, 90, 100, 30, "Min Value:");
-    min_label->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-    min_input = new Fl_Input(130, 90, 450, 30);
-    min_input->value("0");
-
-    auto *max_label = new Fl_Box(20, 130, 100, 30, "Max Value:");
-    max_label->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-    max_input = new Fl_Input(130, 130, 450, 30);
-    max_input->value("100");
-
-    auto *count_label = new Fl_Box(20, 170, 100, 30, "Count:");
-    count_label->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-    count_input = new Fl_Input(130, 170, 450, 30);
-    count_input->value("10");
-
-    // Generate button
-    auto *generate_btn = new Fl_Button(225, 220, 150, 40, "Generate Numbers");
-    generate_btn->callback(generate_callback);
-
-    // Output display
-    auto *output_label = new Fl_Box(20, 270, 100, 30, "Output:");
-    output_label->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
-*/
-
+    // Output text buffer
     output_buffer = new Fl_Text_Buffer();
-    output_display = new Fl_Text_Display(20, 300, 560, 230);
+    output_display = new Fl_Text_Display(20, 340, 560, 230);
     output_display->buffer(output_buffer);
 
     window->end();
